@@ -23,6 +23,13 @@ type Player = {
   defense: number;
 }
 
+// Массив изображений для расы капибар
+const capybaraImages = [
+  "https://cdn.poehali.dev/files/bf1b1956-6627-48f7-a163-03bef9059a4b.jpg",
+  "https://cdn.poehali.dev/files/75a4aa97-cc64-4314-9c76-59c29feca3cf.jpg",
+  "https://cdn.poehali.dev/files/4e2cbfd9-30da-49df-b71b-7279960ec620.jpeg"
+];
+
 const Index = () => {
   const [bossStats, setBossStats] = useState<string>('');
   const [boss, setBoss] = useState<Boss | null>(null);
@@ -66,21 +73,28 @@ const Index = () => {
       
       // Создаем босса и изображение в зависимости от расы
       let bossImage = "";
-      switch(bossRace.toLowerCase()) {
-        case "орк": 
-        case "orc": 
-          bossImage = "https://images.unsplash.com/photo-1615678815958-5910c6811c25?w=300&q=80"; 
-          break;
-        case "эльф": 
-        case "elf": 
-          bossImage = "https://images.unsplash.com/photo-1604076913837-52ab5629fba9?w=300&q=80"; 
-          break;
-        case "демон": 
-        case "demon": 
-          bossImage = "https://images.unsplash.com/photo-1590586767908-800584c03c71?w=300&q=80"; 
-          break;
-        default: 
-          bossImage = "https://images.unsplash.com/photo-1577493340887-b7bfff550145?w=300&q=80";
+      
+      // Проверяем принадлежность к расе капибар и выбираем случайное изображение из массива
+      if (bossRace.toLowerCase() === "капибара" || bossRace.toLowerCase() === "capybara") {
+        const randomIndex = Math.floor(Math.random() * capybaraImages.length);
+        bossImage = capybaraImages[randomIndex];
+      } else {
+        switch(bossRace.toLowerCase()) {
+          case "орк": 
+          case "orc": 
+            bossImage = "https://images.unsplash.com/photo-1615678815958-5910c6811c25?w=300&q=80"; 
+            break;
+          case "эльф": 
+          case "elf": 
+            bossImage = "https://images.unsplash.com/photo-1604076913837-52ab5629fba9?w=300&q=80"; 
+            break;
+          case "демон": 
+          case "demon": 
+            bossImage = "https://images.unsplash.com/photo-1590586767908-800584c03c71?w=300&q=80"; 
+            break;
+          default: 
+            bossImage = "https://images.unsplash.com/photo-1577493340887-b7bfff550145?w=300&q=80";
+        }
       }
       
       setBoss({
@@ -100,7 +114,13 @@ const Index = () => {
         attack: 15,
         defense: 10
       });
-      setBattleLog([`Босс ${bossName} (${bossRace}) появился на поле битвы!`]);
+      
+      // Добавляем специальное сообщение для капибар
+      if (bossRace.toLowerCase() === "капибара" || bossRace.toLowerCase() === "capybara") {
+        setBattleLog([`Босс ${bossName} (${bossRace}) появился на поле битвы! Эта милая и опасная капибара выглядит решительно!`]);
+      } else {
+        setBattleLog([`Босс ${bossName} (${bossRace}) появился на поле битвы!`]);
+      }
     } catch (error) {
       setBattleLog([`Ошибка при анализе статистики: ${error}`]);
     }
@@ -127,11 +147,22 @@ const Index = () => {
     setPlayer({...player, health: newPlayerHealth});
     
     // Добавляем записи в журнал боя
-    const newLogs = [
-      `Вы наносите ${playerDamage} урона ${boss.name}.`,
-      newBossHealth > 0 ? `${boss.name} наносит вам ${bossDamage} урона.` : `${boss.name} повержен!`,
-      newPlayerHealth <= 0 ? "Вы проиграли бой!" : ""
-    ].filter(log => log);
+    let newLogs = [];
+    const isCapybara = boss.race.toLowerCase() === "капибара" || boss.race.toLowerCase() === "capybara";
+    
+    if (isCapybara) {
+      newLogs = [
+        `Вы наносите ${playerDamage} урона ${boss.name}. Капибара недовольно фыркает!`,
+        newBossHealth > 0 ? `${boss.name} атакует вас мощным укусом на ${bossDamage} урона!` : `${boss.name} повержен! Капибара мирно уходит купаться.`,
+        newPlayerHealth <= 0 ? "Вы проиграли бой! Капибара торжествующе пищит!" : ""
+      ].filter(log => log);
+    } else {
+      newLogs = [
+        `Вы наносите ${playerDamage} урона ${boss.name}.`,
+        newBossHealth > 0 ? `${boss.name} наносит вам ${bossDamage} урона.` : `${boss.name} повержен!`,
+        newPlayerHealth <= 0 ? "Вы проиграли бой!" : ""
+      ].filter(log => log);
+    }
     
     setBattleLog([...newLogs, ...battleLog]);
     
@@ -163,7 +194,7 @@ const Index = () => {
             <CardHeader>
               <CardTitle>Создать босса</CardTitle>
               <CardDescription>
-                Введите статистику вашего босса. Можно указать расу в скобках, например: Горлум (орк)
+                Введите статистику вашего босса. Можно указать расу в скобках, например: Горлум (орк), Кроко (капибара)
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -171,7 +202,7 @@ const Index = () => {
                 value={bossStats} 
                 onChange={(e) => setBossStats(e.target.value)} 
                 placeholder="Введите информацию о боссе, например:
-Горлум (орк)
+Кроко (капибара)
 здоровье: 150
 атака: 20
 защита: 8"
