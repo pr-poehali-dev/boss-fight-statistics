@@ -1,12 +1,25 @@
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import Icon from '@/components/ui/icon';
+
+type SpecialAttack = {
+  name: string;
+  description: string;
+  clicksRequired: number;
+  timeLimit: number;
+  effect: {
+    attackReduction?: number;
+    defenseReduction?: number;
+    isCapybaraTransform?: boolean;
+  };
+}
 
 type Minion = {
   name: string;
@@ -29,6 +42,7 @@ type Boss = {
   totalPhases: number;
   isLeader: boolean;
   minions: Minion[];
+  specialAttacks: SpecialAttack[];
 }
 
 type Player = {
@@ -36,6 +50,7 @@ type Player = {
   maxHealth: number;
   attack: number;
   defense: number;
+  hasCapybaraEffect: boolean;
 }
 
 // Массив изображений для расы капибар
@@ -73,6 +88,39 @@ const capybaraMinions = [
   }
 ];
 
+// Массив специальных атак
+const possibleSpecialAttacks: SpecialAttack[] = [
+  {
+    name: "Гипнотизирующий взгляд",
+    description: "Босс пытается загипнотизировать вас! Нажимайте кнопку, чтобы сопротивляться!",
+    clicksRequired: 10,
+    timeLimit: 5,
+    effect: {
+      attackReduction: 5,
+    }
+  },
+  {
+    name: "Ментальный удар",
+    description: "Босс пытается сломить вашу волю! Быстро нажимайте на кнопку, чтобы защититься!",
+    clicksRequired: 12,
+    timeLimit: 4,
+    effect: {
+      defenseReduction: 3,
+    }
+  },
+  {
+    name: "Трансформация капибары",
+    description: "Капибара-лидер пытается превратить ваши конечности в лапы капибары! Нажимайте, чтобы сопротивляться!",
+    clicksRequired: 15,
+    timeLimit: 6,
+    effect: {
+      isCapybaraTransform: true,
+      attackReduction: 7,
+      defenseReduction: 4
+    }
+  }
+];
+
 const Index = () => {
   const [bossStats, setBossStats] = useState<string>('');
   const [boss, setBoss] = useState<Boss | null>(null);
@@ -80,12 +128,30 @@ const Index = () => {
     health: 100,
     maxHealth: 100,
     attack: 15,
-    defense: 10
+    defense: 10,
+    hasCapybaraEffect: false
   });
   const [battleLog, setBattleLog] = useState<string[]>([]);
   const [isBattleActive, setIsBattleActive] = useState<boolean>(false);
   const [phasesCount, setPhasesCount] = useState<string>("1");
   const [isLeader, setIsLeader] = useState<boolean>(false);
+  const [specialAttackText, setSpecialAttackText] = useState<string>('');
+  
+  // Состояния для специальной атаки
+  const [isSpecialAttackActive, setIsSpecialAttackActive] = useState<boolean>(false);
+  const [currentSpecialAttack, setCurrentSpecialAttack] = useState<SpecialAttack | null>(null);
+  const [specialAttackClicks, setSpecialAttackClicks] = useState<number>(0);
+  const [specialAttackTimeLeft, setSpecialAttackTimeLeft] = useState<number>(0);
+  const timerRef = useRef<number | null>(null);
+
+  // Очищаем таймер при размонтировании компонента
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        window.clearInterval(timerRef.current);
+      }
+    };
+  }, []);
 
   const parseStats = () => {
     try {
@@ -105,6 +171,33 @@ const Index = () => {
       if (lines.length > 0) {
         const firstLine = lines[0].replace(/\([^)]*\)/g, '').trim();
         if (firstLine) bossName = firstLine;
+      }
+      
+      // Ищем специальные атаки в тексте
+      const specialAttacksText = specialAttackText.trim();
+      const specialAttacks: SpecialAttack[] = [];
+      
+      // Если указаны специальные атаки, добавляем их боссу
+      if (specialAttacksText) {
+        // По умолчанию добавляем первую атаку из списка
+        specialAttacks.push(possibleSpecialAttacks[0]);
+        
+        // Проверяем, есть ли в тексте ключевые слова для других атак
+        if (specialAttacksText.toLowerCase().includes("гипноз") || specialAttacksText.toLowerCase().includes("гипнотизирующий")) {
+          if (!specialAttacks.some(attack => attack.name === possibleSpecialAttacks[0].name)) {
+            specialAttacks.push(possibleSpecialAttacks[0]);
+          }
+        }
+        if (specialAttacksText.toLowerCase().includes("ментальный") || specialAttacksText.toLowerCase().includes("воля")) {
+          if (!specialAttacks.some(attack => attack.name === possibleSpecialAttacks[1].name)) {
+            specialAttacks.push(possibleSpecialAttacks[1]);
+          }
+        }
+        if (specialAttacksText.toLowerCase().includes("трансформация") || specialAttacksText.toLowerCase().includes("превращение")) {
+          if (!specialAttacks.some(attack => attack.name === possibleSpecialAttacks[2].name)) {
+            specialAttacks.push(possibleSpecialAttacks[2]);
+          }
+        }
       }
       
       // Анализ текста для извлечения параметров босса
@@ -146,6 +239,11 @@ const Index = () => {
       const totalPhases = parseInt(phasesCount);
       const isCapybaraLeader = isLeader && (bossRace.toLowerCase() === "капибара" || bossRace.toLowerCase() === "capybara");
       
+      // Для капибары-лидера добавляем специальную атаку трансформации, если её ещё нет
+      if (isCapybaraLeader && !specialAttacks.some(attack => attack.name === possibleSpecialAttacks[2].name)) {
+        specialAttacks.push(possibleSpecialAttacks[2]);
+      }
+      
       // Создаем миньонов, если это капибара-лидер
       const minions: Minion[] = [];
       if (isCapybaraLeader) {
@@ -168,7 +266,8 @@ const Index = () => {
         currentPhase: 1,
         totalPhases: totalPhases,
         isLeader: isCapybaraLeader,
-        minions: minions
+        minions: minions,
+        specialAttacks: specialAttacks
       });
       
       // Подготовка к битве
@@ -176,7 +275,8 @@ const Index = () => {
         health: 100,
         maxHealth: 100,
         attack: 15,
-        defense: 10
+        defense: 10,
+        hasCapybaraEffect: false
       });
       
       // Добавляем специальное сообщение для капибар
@@ -197,10 +297,121 @@ const Index = () => {
         }
       }
       
+      if (specialAttacks.length > 0) {
+        initialMessage += ` Босс владеет ${specialAttacks.length} ${specialAttacks.length === 1 ? 'особой атакой' : 'особыми атаками'}!`;
+      }
+      
       setBattleLog([initialMessage]);
     } catch (error) {
       setBattleLog([`Ошибка при анализе статистики: ${error}`]);
     }
+  };
+
+  // Обработчик для кнопки спасения при специальной атаке
+  const handleSaveClick = () => {
+    if (!currentSpecialAttack || !isSpecialAttackActive) return;
+    
+    setSpecialAttackClicks(prev => prev + 1);
+    
+    // Проверяем, достаточно ли кликов для спасения
+    if (specialAttackClicks + 1 >= currentSpecialAttack.clicksRequired) {
+      // Игрок успешно противостоял атаке
+      setIsSpecialAttackActive(false);
+      if (timerRef.current) {
+        window.clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      
+      // Добавляем сообщение об успешном сопротивлении
+      const successMessage = currentSpecialAttack.name === "Трансформация капибары" 
+        ? "Вы успешно сопротивляетесь трансформации в капибару!" 
+        : `Вы успешно противостоите атаке "${currentSpecialAttack.name}"!`;
+      
+      setBattleLog(prev => [successMessage, ...prev]);
+    }
+  };
+
+  // Функция для запуска специальной атаки
+  const triggerSpecialAttack = () => {
+    if (!boss || !boss.specialAttacks.length || isSpecialAttackActive) return;
+    
+    // Случайно выбираем специальную атаку из доступных
+    const randomIndex = Math.floor(Math.random() * boss.specialAttacks.length);
+    const selectedAttack = boss.specialAttacks[randomIndex];
+    
+    // Начинаем атаку
+    setCurrentSpecialAttack(selectedAttack);
+    setSpecialAttackClicks(0);
+    setSpecialAttackTimeLeft(selectedAttack.timeLimit);
+    setIsSpecialAttackActive(true);
+    
+    // Добавляем сообщение о начале атаки
+    setBattleLog(prev => [`${boss.name} использует специальную атаку "${selectedAttack.name}"!`, ...prev]);
+    
+    // Запускаем таймер
+    if (timerRef.current) {
+      window.clearInterval(timerRef.current);
+    }
+    
+    timerRef.current = window.setInterval(() => {
+      setSpecialAttackTimeLeft(prev => {
+        if (prev <= 1) {
+          // Время истекло, применяем эффект
+          if (timerRef.current) {
+            window.clearInterval(timerRef.current);
+            timerRef.current = null;
+          }
+          
+          // Проверяем, хватило ли кликов для сопротивления
+          if (specialAttackClicks < selectedAttack.clicksRequired) {
+            // Не хватило кликов, применяем эффект
+            applySpecialAttackEffect(selectedAttack);
+          }
+          
+          setIsSpecialAttackActive(false);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  // Применение эффекта специальной атаки
+  const applySpecialAttackEffect = (attack: SpecialAttack) => {
+    // Проверяем, существует ли игрок и босс
+    if (!player || !boss) return;
+    
+    // Применяем эффекты атаки
+    const newPlayer = { ...player };
+    
+    if (attack.effect.attackReduction) {
+      newPlayer.attack = Math.max(1, newPlayer.attack - attack.effect.attackReduction);
+    }
+    
+    if (attack.effect.defenseReduction) {
+      newPlayer.defense = Math.max(0, newPlayer.defense - attack.effect.defenseReduction);
+    }
+    
+    if (attack.effect.isCapybaraTransform) {
+      newPlayer.hasCapybaraEffect = true;
+    }
+    
+    setPlayer(newPlayer);
+    
+    // Добавляем сообщение о применении эффекта
+    let effectMessage = "";
+    
+    if (attack.effect.isCapybaraTransform) {
+      effectMessage = "О нет! Ваши руки и ноги трансформировались в лапы капибары, а ваши уши стали как у капибары! Ваша атака и защита снижены!";
+    } else if (attack.effect.attackReduction && !attack.effect.defenseReduction) {
+      effectMessage = `Атака "${attack.name}" ослабила вас! Ваша атака снижена на ${attack.effect.attackReduction} ед.`;
+    } else if (!attack.effect.attackReduction && attack.effect.defenseReduction) {
+      effectMessage = `Атака "${attack.name}" подействовала! Ваша защита снижена на ${attack.effect.defenseReduction} ед.`;
+    } else if (attack.effect.attackReduction && attack.effect.defenseReduction) {
+      effectMessage = `Атака "${attack.name}" оказалась успешной! Ваша атака снижена на ${attack.effect.attackReduction} ед., а защита на ${attack.effect.defenseReduction} ед.`;
+    }
+    
+    setBattleLog(prev => [effectMessage, ...prev]);
   };
 
   const attack = () => {
@@ -242,9 +453,19 @@ const Index = () => {
     let minionDamages: { minionName: string, damage: number }[] = [];
     
     if (newBossHealth > 0 || phaseChanged) {
-      // Босс атакует
-      bossDamage = Math.max(1, boss.attack - player.defense / 2);
-      newPlayerHealth = Math.max(0, newPlayerHealth - bossDamage);
+      // С определенным шансом босс может использовать специальную атаку
+      const useSpecialAttack = !isSpecialAttackActive && 
+                              boss.specialAttacks.length > 0 && 
+                              Math.random() < 0.3; // 30% шанс использовать специальную атаку
+      
+      if (useSpecialAttack) {
+        // Запускаем специальную атаку вместо обычной
+        triggerSpecialAttack();
+      } else {
+        // Обычная атака босса
+        bossDamage = Math.max(1, boss.attack - player.defense / 2);
+        newPlayerHealth = Math.max(0, newPlayerHealth - bossDamage);
+      }
       
       // Если у босса есть миньоны (для капибары-лидера), они тоже атакуют
       if (boss.isLeader && boss.minions.length > 0) {
@@ -258,14 +479,16 @@ const Index = () => {
       }
     }
     
-    setPlayer({...player, health: newPlayerHealth});
+    setPlayer(prev => ({...prev, health: newPlayerHealth}));
     
     // Добавляем записи в журнал боя
     let newLogs = [];
     const isCapybara = boss.race.toLowerCase() === "капибара" || boss.race.toLowerCase() === "capybara";
     
     // Сообщение об атаке игрока
-    if (isCapybara) {
+    if (player.hasCapybaraEffect) {
+      newLogs.push(`Вы неуклюже атакуете лапами капибары, нанося всего ${playerDamage} урона ${boss.name}.`);
+    } else if (isCapybara) {
       newLogs.push(`Вы наносите ${playerDamage} урона ${boss.name}. Капибара недовольно фыркает!`);
     } else {
       newLogs.push(`Вы наносите ${playerDamage} урона ${boss.name}.`);
@@ -276,8 +499,8 @@ const Index = () => {
       newLogs.push(`${boss.name} переходит в фазу ${newCurrentPhase}/${boss.totalPhases}! Его атака усиливается!`);
     }
     
-    // Сообщение об атаке босса
-    if (newBossHealth > 0 || phaseChanged) {
+    // Сообщение об атаке босса (только если не использовалась специальная атака)
+    if (!isSpecialAttackActive && (newBossHealth > 0 || phaseChanged)) {
       if (isCapybara) {
         newLogs.push(`${boss.name} атакует вас мощным укусом на ${bossDamage} урона!`);
       } else {
@@ -324,8 +547,14 @@ const Index = () => {
   const reset = () => {
     setBoss(null);
     setBossStats('');
+    setSpecialAttackText('');
     setBattleLog([]);
     setIsBattleActive(false);
+    setIsSpecialAttackActive(false);
+    if (timerRef.current) {
+      window.clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
   };
 
   return (
@@ -352,6 +581,20 @@ const Index = () => {
 защита: 8"
                 className="min-h-[150px]"
               />
+              
+              <div className="space-y-2">
+                <Label htmlFor="special-attack">Особая атака (необязательно)</Label>
+                <Textarea 
+                  id="special-attack"
+                  value={specialAttackText} 
+                  onChange={(e) => setSpecialAttackText(e.target.value)} 
+                  placeholder="Опишите особую атаку босса, например:
+гипнотизирующий взгляд
+ментальный удар
+трансформация (превращает части тела в капибару)"
+                  className="min-h-[80px]"
+                />
+              </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -394,6 +637,48 @@ const Index = () => {
           </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Специальная атака - всплывающий интерфейс */}
+            {isSpecialAttackActive && currentSpecialAttack && (
+              <div className="fixed inset-0 flex items-center justify-center bg-black/50 z-50">
+                <div className="bg-white rounded-lg p-6 m-4 max-w-md w-full">
+                  <h3 className="text-xl font-bold text-red-600 mb-2">
+                    {currentSpecialAttack.name}
+                  </h3>
+                  <p className="mb-4">{currentSpecialAttack.description}</p>
+                  
+                  <div className="mb-4">
+                    <Label>Прогресс</Label>
+                    <Progress 
+                      value={(specialAttackClicks / currentSpecialAttack.clicksRequired) * 100} 
+                      className="h-3 mt-1"
+                    />
+                    <div className="text-sm mt-1 text-gray-500">
+                      Клики: {specialAttackClicks}/{currentSpecialAttack.clicksRequired}
+                    </div>
+                  </div>
+                  
+                  <div className="mb-4">
+                    <Label>Оставшееся время</Label>
+                    <Progress 
+                      value={(specialAttackTimeLeft / currentSpecialAttack.timeLimit) * 100} 
+                      className="h-3 mt-1 bg-gray-200"
+                    />
+                    <div className="text-sm mt-1 text-gray-500">
+                      {specialAttackTimeLeft} сек.
+                    </div>
+                  </div>
+                  
+                  <Button 
+                    onClick={handleSaveClick} 
+                    className="w-full bg-red-600 hover:bg-red-700 text-lg py-6"
+                  >
+                    <Icon name="ShieldAlert" className="mr-2" size={20} />
+                    СПАСТИ!
+                  </Button>
+                </div>
+              </div>
+            )}
+            
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center justify-between">
@@ -437,6 +722,20 @@ const Index = () => {
                     </div>
                   </div>
                   
+                  {/* Отображение специальных атак */}
+                  {boss.specialAttacks.length > 0 && (
+                    <div className="mt-2">
+                      <h3 className="text-sm font-semibold mb-2">Особые атаки:</h3>
+                      <div className="space-y-1">
+                        {boss.specialAttacks.map((attack, index) => (
+                          <div key={index} className="text-xs bg-red-50 p-1 rounded border border-red-100">
+                            {attack.name}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
                   {/* Отображение миньонов, если это капибара-лидер */}
                   {boss.isLeader && boss.minions.length > 0 && (
                     <div className="mt-4">
@@ -468,8 +767,25 @@ const Index = () => {
                 <CardDescription>Герой</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="mb-4">
-                  <img src="https://images.unsplash.com/photo-1509822929063-6b6cfc9b42f2?w=300&q=80" alt="Герой" className="w-full h-48 object-cover rounded-md" />
+                <div className="mb-4 relative">
+                  <img 
+                    src="https://images.unsplash.com/photo-1509822929063-6b6cfc9b42f2?w=300&q=80" 
+                    alt="Герой" 
+                    className="w-full h-48 object-cover rounded-md" 
+                  />
+                  {/* Эффект трансформации в капибару */}
+                  {player.hasCapybaraEffect && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-between">
+                      <div className="w-20 h-10 bg-contain bg-no-repeat bg-center mt-1" 
+                        style={{ backgroundImage: `url(${capybaraImages[0]})` }} />
+                      <div className="flex justify-between w-full px-4">
+                        <div className="w-12 h-12 bg-contain bg-no-repeat bg-center" 
+                          style={{ backgroundImage: `url(${capybaraImages[1]})` }} />
+                        <div className="w-12 h-12 bg-contain bg-no-repeat bg-center" 
+                          style={{ backgroundImage: `url(${capybaraImages[2]})` }} />
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div className="space-y-4">
                   <div>
@@ -480,21 +796,46 @@ const Index = () => {
                     <Progress value={(player.health / player.maxHealth) * 100} className="h-2 bg-gray-200" />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-white p-2 rounded-md shadow-sm">
+                    <div className={`bg-white p-2 rounded-md shadow-sm ${player.hasCapybaraEffect ? 'border-2 border-orange-300' : ''}`}>
                       <div className="text-sm text-gray-500">Атака</div>
-                      <div className="font-bold text-lg">{player.attack}</div>
+                      <div className="font-bold text-lg flex items-center">
+                        {player.attack}
+                        {player.hasCapybaraEffect && (
+                          <span className="ml-2 text-xs text-red-500">
+                            (Снижена)
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <div className="bg-white p-2 rounded-md shadow-sm">
+                    <div className={`bg-white p-2 rounded-md shadow-sm ${player.hasCapybaraEffect ? 'border-2 border-orange-300' : ''}`}>
                       <div className="text-sm text-gray-500">Защита</div>
-                      <div className="font-bold text-lg">{player.defense}</div>
+                      <div className="font-bold text-lg flex items-center">
+                        {player.defense}
+                        {player.hasCapybaraEffect && (
+                          <span className="ml-2 text-xs text-red-500">
+                            (Снижена)
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
+                  
+                  {/* Индикатор эффекта трансформации */}
+                  {player.hasCapybaraEffect && (
+                    <Alert className="bg-orange-50 border-orange-200">
+                      <Icon name="AlertTriangle" className="h-4 w-4 text-orange-600" />
+                      <AlertTitle className="text-orange-800">Эффект трансформации капибары</AlertTitle>
+                      <AlertDescription className="text-xs">
+                        Ваши руки и ноги превратились в лапы капибары, а уши стали как у капибары!
+                      </AlertDescription>
+                    </Alert>
+                  )}
                 </div>
               </CardContent>
               <CardFooter className="flex justify-between">
                 <Button 
                   onClick={attack} 
-                  disabled={!isBattleActive || (boss.health <= 0 && boss.currentPhase === boss.totalPhases) || player.health <= 0}
+                  disabled={!isBattleActive || (boss.health <= 0 && boss.currentPhase === boss.totalPhases) || player.health <= 0 || isSpecialAttackActive}
                   className="bg-red-600 hover:bg-red-700 disabled:bg-gray-400"
                 >
                   <Icon name="Sword" className="mr-2" size={18} />
