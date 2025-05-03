@@ -4,7 +4,18 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import Icon from '@/components/ui/icon';
+
+type Minion = {
+  name: string;
+  health: number;
+  maxHealth: number;
+  attack: number;
+  defense: number;
+  image: string;
+}
 
 type Boss = {
   name: string;
@@ -14,6 +25,10 @@ type Boss = {
   attack: number;
   defense: number;
   image: string;
+  currentPhase: number;
+  totalPhases: number;
+  isLeader: boolean;
+  minions: Minion[];
 }
 
 type Player = {
@@ -30,6 +45,34 @@ const capybaraImages = [
   "https://cdn.poehali.dev/files/4e2cbfd9-30da-49df-b71b-7279960ec620.jpeg"
 ];
 
+// Массив потенциальных призываемых миньонов для капибар-лидеров
+const capybaraMinions = [
+  { 
+    name: "Малыш Капи", 
+    health: 30, 
+    maxHealth: 30, 
+    attack: 10, 
+    defense: 3, 
+    image: capybaraImages[0]
+  },
+  {
+    name: "Капибара-разведчик",
+    health: 20,
+    maxHealth: 20,
+    attack: 15,
+    defense: 2,
+    image: capybaraImages[1]
+  },
+  {
+    name: "Пухлая капибара",
+    health: 50,
+    maxHealth: 50,
+    attack: 5,
+    defense: 7,
+    image: capybaraImages[2]
+  }
+];
+
 const Index = () => {
   const [bossStats, setBossStats] = useState<string>('');
   const [boss, setBoss] = useState<Boss | null>(null);
@@ -41,6 +84,8 @@ const Index = () => {
   });
   const [battleLog, setBattleLog] = useState<string[]>([]);
   const [isBattleActive, setIsBattleActive] = useState<boolean>(false);
+  const [phasesCount, setPhasesCount] = useState<string>("1");
+  const [isLeader, setIsLeader] = useState<boolean>(false);
 
   const parseStats = () => {
     try {
@@ -97,6 +142,21 @@ const Index = () => {
         }
       }
       
+      // Создаем и инициализируем босса с указанным количеством фаз
+      const totalPhases = parseInt(phasesCount);
+      const isCapybaraLeader = isLeader && (bossRace.toLowerCase() === "капибара" || bossRace.toLowerCase() === "capybara");
+      
+      // Создаем миньонов, если это капибара-лидер
+      const minions: Minion[] = [];
+      if (isCapybaraLeader) {
+        // Случайно выбираем 1-2 миньона для призыва
+        const minionCount = Math.floor(Math.random() * 2) + 1;
+        for (let i = 0; i < minionCount; i++) {
+          const randomMinionIndex = Math.floor(Math.random() * capybaraMinions.length);
+          minions.push({...capybaraMinions[randomMinionIndex]});
+        }
+      }
+      
       setBoss({
         name: bossName,
         race: bossRace,
@@ -104,7 +164,11 @@ const Index = () => {
         maxHealth: health,
         attack: attack,
         defense: defense,
-        image: bossImage
+        image: bossImage,
+        currentPhase: 1,
+        totalPhases: totalPhases,
+        isLeader: isCapybaraLeader,
+        minions: minions
       });
       
       // Подготовка к битве
@@ -116,11 +180,24 @@ const Index = () => {
       });
       
       // Добавляем специальное сообщение для капибар
+      let initialMessage = `Босс ${bossName} (${bossRace}) появился на поле битвы!`;
+      
       if (bossRace.toLowerCase() === "капибара" || bossRace.toLowerCase() === "capybara") {
-        setBattleLog([`Босс ${bossName} (${bossRace}) появился на поле битвы! Эта милая и опасная капибара выглядит решительно!`]);
-      } else {
-        setBattleLog([`Босс ${bossName} (${bossRace}) появился на поле битвы!`]);
+        initialMessage += " Эта милая и опасная капибара выглядит решительно!";
       }
+      
+      if (totalPhases > 1) {
+        initialMessage += ` У босса ${totalPhases} ${totalPhases === 1 ? 'фаза' : totalPhases < 5 ? 'фазы' : 'фаз'}!`;
+      }
+      
+      if (isCapybaraLeader) {
+        initialMessage += " Это капибара-лидер!";
+        if (minions.length > 0) {
+          initialMessage += ` Лидер призвал ${minions.length} ${minions.length === 1 ? 'миньона' : 'миньонов'} на помощь!`;
+        }
+      }
+      
+      setBattleLog([initialMessage]);
     } catch (error) {
       setBattleLog([`Ошибка при анализе статистики: ${error}`]);
     }
@@ -131,43 +208,110 @@ const Index = () => {
     
     // Игрок атакует босса
     const playerDamage = Math.max(1, player.attack - boss.defense / 2);
-    const newBossHealth = Math.max(0, boss.health - playerDamage);
+    let newBossHealth = Math.max(0, boss.health - playerDamage);
     
-    // Босс атакует игрока, если ещё жив
-    let newPlayerHealth = player.health;
-    let bossDamage = 0;
+    // Обработка смены фазы или перехода к следующей фазе
+    let newCurrentPhase = boss.currentPhase;
+    let phaseChanged = false;
     
-    if (newBossHealth > 0) {
-      bossDamage = Math.max(1, boss.attack - player.defense / 2);
-      newPlayerHealth = Math.max(0, player.health - bossDamage);
+    // Проверяем, нужно ли переходить к следующей фазе
+    if (newBossHealth <= 0 && boss.currentPhase < boss.totalPhases) {
+      newCurrentPhase++;
+      phaseChanged = true;
+      
+      // Восстанавливаем здоровье для новой фазы (с некоторыми изменениями)
+      const phaseHealthFactor = 1 - ((newCurrentPhase - 1) * 0.15); // Каждая следующая фаза имеет меньше здоровья
+      newBossHealth = Math.ceil(boss.maxHealth * phaseHealthFactor);
+      
+      // Увеличиваем атаку босса в каждой новой фазе
+      const newBoss = {
+        ...boss,
+        health: newBossHealth,
+        attack: Math.ceil(boss.attack * 1.2), // На 20% больше атаки в каждой фазе
+        currentPhase: newCurrentPhase
+      };
+      
+      setBoss(newBoss);
+    } else {
+      setBoss({...boss, health: newBossHealth});
     }
     
-    // Обновление информации о боссе и игроке
-    setBoss({...boss, health: newBossHealth});
+    // Если бой продолжается, босс и миньоны атакуют игрока
+    let newPlayerHealth = player.health;
+    let bossDamage = 0;
+    let minionDamages: { minionName: string, damage: number }[] = [];
+    
+    if (newBossHealth > 0 || phaseChanged) {
+      // Босс атакует
+      bossDamage = Math.max(1, boss.attack - player.defense / 2);
+      newPlayerHealth = Math.max(0, newPlayerHealth - bossDamage);
+      
+      // Если у босса есть миньоны (для капибары-лидера), они тоже атакуют
+      if (boss.isLeader && boss.minions.length > 0) {
+        boss.minions.forEach(minion => {
+          if (newPlayerHealth > 0) {
+            const minionDamage = Math.max(1, minion.attack - player.defense / 3);
+            newPlayerHealth = Math.max(0, newPlayerHealth - minionDamage);
+            minionDamages.push({ minionName: minion.name, damage: minionDamage });
+          }
+        });
+      }
+    }
+    
     setPlayer({...player, health: newPlayerHealth});
     
     // Добавляем записи в журнал боя
     let newLogs = [];
     const isCapybara = boss.race.toLowerCase() === "капибара" || boss.race.toLowerCase() === "capybara";
     
+    // Сообщение об атаке игрока
     if (isCapybara) {
-      newLogs = [
-        `Вы наносите ${playerDamage} урона ${boss.name}. Капибара недовольно фыркает!`,
-        newBossHealth > 0 ? `${boss.name} атакует вас мощным укусом на ${bossDamage} урона!` : `${boss.name} повержен! Капибара мирно уходит купаться.`,
-        newPlayerHealth <= 0 ? "Вы проиграли бой! Капибара торжествующе пищит!" : ""
-      ].filter(log => log);
+      newLogs.push(`Вы наносите ${playerDamage} урона ${boss.name}. Капибара недовольно фыркает!`);
     } else {
-      newLogs = [
-        `Вы наносите ${playerDamage} урона ${boss.name}.`,
-        newBossHealth > 0 ? `${boss.name} наносит вам ${bossDamage} урона.` : `${boss.name} повержен!`,
-        newPlayerHealth <= 0 ? "Вы проиграли бой!" : ""
-      ].filter(log => log);
+      newLogs.push(`Вы наносите ${playerDamage} урона ${boss.name}.`);
     }
     
-    setBattleLog([...newLogs, ...battleLog]);
+    // Сообщение о смене фазы
+    if (phaseChanged) {
+      newLogs.push(`${boss.name} переходит в фазу ${newCurrentPhase}/${boss.totalPhases}! Его атака усиливается!`);
+    }
     
-    // Проверяем, закончился ли бой
-    if (newBossHealth <= 0 || newPlayerHealth <= 0) {
+    // Сообщение об атаке босса
+    if (newBossHealth > 0 || phaseChanged) {
+      if (isCapybara) {
+        newLogs.push(`${boss.name} атакует вас мощным укусом на ${bossDamage} урона!`);
+      } else {
+        newLogs.push(`${boss.name} наносит вам ${bossDamage} урона.`);
+      }
+      
+      // Сообщения об атаках миньонов
+      minionDamages.forEach(({ minionName, damage }) => {
+        newLogs.push(`${minionName} кусает вас на ${damage} урона!`);
+      });
+    }
+    
+    // Сообщение о поражении босса
+    if (newBossHealth <= 0 && !phaseChanged) {
+      if (isCapybara) {
+        newLogs.push(`${boss.name} повержен! Капибара мирно уходит купаться.`);
+      } else {
+        newLogs.push(`${boss.name} повержен!`);
+      }
+    }
+    
+    // Сообщение о поражении игрока
+    if (newPlayerHealth <= 0) {
+      if (isCapybara) {
+        newLogs.push("Вы проиграли бой! Капибара торжествующе пищит!");
+      } else {
+        newLogs.push("Вы проиграли бой!");
+      }
+    }
+    
+    setBattleLog(prev => [...newLogs, ...prev]);
+    
+    // Проверяем, закончился ли бой (босс побежден и нет больше фаз, или игрок проиграл)
+    if ((newBossHealth <= 0 && !phaseChanged) || newPlayerHealth <= 0) {
       setIsBattleActive(false);
     }
   };
@@ -197,7 +341,7 @@ const Index = () => {
                 Введите статистику вашего босса. Можно указать расу в скобках, например: Горлум (орк), Кроко (капибара)
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
               <Textarea 
                 value={bossStats} 
                 onChange={(e) => setBossStats(e.target.value)} 
@@ -208,6 +352,38 @@ const Index = () => {
 защита: 8"
                 className="min-h-[150px]"
               />
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="phases">Количество фаз</Label>
+                  <Select value={phasesCount} onValueChange={setPhasesCount}>
+                    <SelectTrigger id="phases">
+                      <SelectValue placeholder="Выберите количество фаз" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">1 фаза</SelectItem>
+                      <SelectItem value="2">2 фазы</SelectItem>
+                      <SelectItem value="3">3 фазы</SelectItem>
+                      <SelectItem value="4">4 фазы</SelectItem>
+                      <SelectItem value="5">5 фаз</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="flex items-center space-x-2 h-full">
+                  <Label htmlFor="leader-toggle" className="flex-grow">
+                    {isLeader ? "Капибара-лидер (может призывать других капибар)" : "Обычный босс"}
+                  </Label>
+                  <Button 
+                    id="leader-toggle"
+                    variant={isLeader ? "default" : "outline"} 
+                    className="w-24"
+                    onClick={() => setIsLeader(!isLeader)}
+                  >
+                    {isLeader ? "Лидер" : "Обычный"}
+                  </Button>
+                </div>
+              </div>
             </CardContent>
             <CardFooter>
               <Button onClick={startBattle} className="bg-indigo-600 hover:bg-indigo-700">
@@ -222,7 +398,19 @@ const Index = () => {
               <CardHeader>
                 <CardTitle className="flex items-center justify-between">
                   <span>{boss.name}</span>
-                  <span className="text-sm bg-indigo-200 px-2 py-1 rounded-full">{boss.race}</span>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-sm bg-indigo-200 px-2 py-1 rounded-full">{boss.race}</span>
+                    {boss.totalPhases > 1 && (
+                      <span className="text-sm bg-red-200 px-2 py-1 rounded-full">
+                        Фаза {boss.currentPhase}/{boss.totalPhases}
+                      </span>
+                    )}
+                    {boss.isLeader && (
+                      <span className="text-sm bg-yellow-200 px-2 py-1 rounded-full">
+                        Лидер
+                      </span>
+                    )}
+                  </div>
                 </CardTitle>
                 <CardDescription>Враг</CardDescription>
               </CardHeader>
@@ -248,6 +436,28 @@ const Index = () => {
                       <div className="font-bold text-lg">{boss.defense}</div>
                     </div>
                   </div>
+                  
+                  {/* Отображение миньонов, если это капибара-лидер */}
+                  {boss.isLeader && boss.minions.length > 0 && (
+                    <div className="mt-4">
+                      <h3 className="text-sm font-semibold mb-2">Призванные миньоны:</h3>
+                      <div className="grid grid-cols-1 gap-2">
+                        {boss.minions.map((minion, index) => (
+                          <div key={index} className="bg-white p-2 rounded-md flex items-center">
+                            <img 
+                              src={minion.image} 
+                              alt={minion.name} 
+                              className="w-10 h-10 object-cover rounded-full mr-2" 
+                            />
+                            <div>
+                              <div className="font-semibold text-xs">{minion.name}</div>
+                              <div className="text-xs">Атака: {minion.attack} | Защита: {minion.defense}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -284,7 +494,7 @@ const Index = () => {
               <CardFooter className="flex justify-between">
                 <Button 
                   onClick={attack} 
-                  disabled={!isBattleActive || boss.health <= 0 || player.health <= 0}
+                  disabled={!isBattleActive || (boss.health <= 0 && boss.currentPhase === boss.totalPhases) || player.health <= 0}
                   className="bg-red-600 hover:bg-red-700 disabled:bg-gray-400"
                 >
                   <Icon name="Sword" className="mr-2" size={18} />
